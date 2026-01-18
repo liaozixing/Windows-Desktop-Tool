@@ -55,7 +55,8 @@ def load_settings():
         "minimize_to_tray": True,
         "theme": "深色",
         "accent_color": "#1677ff",
-        "language": "简体中文"
+        "language": "简体中文",
+        "disclaimer_accepted": False
     }
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 {
-    "auto_start": true,
+    "auto_start": false,
     "minimize_to_tray": false,
     "theme": "浅色",
-    "accent_color": "#ffaaff"
+    "accent_color": "#ffaaff",
+    "disclaimer_accepted": true
 }

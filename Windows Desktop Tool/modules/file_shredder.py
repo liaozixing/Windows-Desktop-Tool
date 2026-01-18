@@ -4,10 +4,10 @@ import stat
 import psutil
 from PyQt5.QtCore import QThread, pyqtSignal
 
-def is_system_path(path, check_processes=True):
+def is_system_path(path, check_processes=False):
     """
     检查路径是否为系统关键文件路径
-    check_processes: 是否检查进程占用（耗时操作）
+    check_processes: 是否检查进程占用（耗时操作，默认关闭以提高性能）
     """
     try:
         path = os.path.abspath(path).lower()
@@ -41,15 +41,14 @@ def is_system_path(path, check_processes=True):
             if path.startswith(critical):
                 return True, "检测到系统关键文件，为防止系统损坏，已禁止操作"
 
-        # 检查是否被系统关键进程占用 (耗时操作，默认可跳过)
+        # 检查是否被系统关键进程占用 (仅在 check_processes=True 时执行)
         if check_processes:
             abs_path = os.path.abspath(path)
-            for proc in psutil.process_iter(['pid', 'name', 'open_files']):
+            for proc in psutil.process_iter(['pid', 'open_files']):
                 try:
-                    for file in proc.info.get('open_files') or []:
-                        if os.path.abspath(file.path) == abs_path:
-                            # 如果是被 System (PID 4) 或关键服务占用 (通常 PID < 1000)
-                            if proc.info['pid'] <= 1000:
+                    if proc.info['pid'] <= 1000:
+                        for file in proc.info.get('open_files') or []:
+                            if os.path.abspath(file.path) == abs_path:
                                 return True, "此文件正在被系统关键进程占用，禁止操作"
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
@@ -119,7 +118,7 @@ def remove_readonly(func, path, _):
 
 class ValidationWorker(QThread):
     """
-    后台校验文件占用情况（性能优化版：单次扫描进程）
+    后台校验文件占用情况（性能优化版：仅执行快速路径校验）
     """
     finished = pyqtSignal(str, bool, str) # 路径, 是否是系统文件, 原因
 
@@ -129,41 +128,20 @@ class ValidationWorker(QThread):
         self.path_map = {os.path.abspath(p).lower(): p for p in paths}
 
     def run(self):
-        # 1. 预先收集所有正在被系统关键进程占用的文件
-        system_locked_files = {}
-        
-        try:
-            for proc in psutil.process_iter(['pid', 'name', 'open_files']):
-                try:
-                    # 仅关注系统关键进程 (PID <= 1000)
-                    if proc.info['pid'] <= 1000:
-                        open_files = proc.info.get('open_files')
-                        if open_files:
-                            for f in open_files:
-                                fpath = os.path.abspath(f.path).lower()
-                                system_locked_files[fpath] = "此文件正在被系统关键进程占用，禁止操作"
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    continue
-        except Exception:
-            pass
-
-        # 2. 批量匹配路径
+        # 批量匹配路径，跳过耗时的进程扫描
         for abs_path_lower in self.paths:
             original_path = self.path_map[abs_path_lower]
             
-            # 检查是否在系统锁定列表中
-            if abs_path_lower in system_locked_files:
-                self.finished.emit(original_path, True, system_locked_files[abs_path_lower])
+            # 执行快速路径检查
+            is_sys, reason = is_system_path(original_path, check_processes=False)
+            if is_sys:
+                self.finished.emit(original_path, True, reason)
             else:
-                # 再次执行快速路径检查（虽然 UI 已检查，但为了严谨这里保留）
-                is_sys, reason = is_system_path(original_path, check_processes=False)
-                if is_sys:
-                    self.finished.emit(original_path, True, reason)
-                else:
-                    self.finished.emit(original_path, False, "")
+                self.finished.emit(original_path, False, "")
 
 class ShredderWorker(QThread):
     progress = pyqtSignal(int, str)
+    file_finished = pyqtSignal(str, bool, str) # 路径, 是否成功, 消息
     finished = pyqtSignal(int, int, list) # 成功数, 失败数, 错误列表
 
     def __init__(self, paths):
@@ -181,23 +159,28 @@ class ShredderWorker(QThread):
             is_sys, _ = is_system_path(path)
             if is_sys:
                 fail_count += 1
-                errors.append(f"{path}: 系统关键文件，禁止操作")
+                msg = "系统关键文件，禁止操作"
+                errors.append(f"{path}: {msg}")
+                self.file_finished.emit(path, False, msg)
                 continue
 
             if not os.path.exists(path):
                 fail_count += 1
-                errors.append(f"{path}: 文件不存在")
+                msg = "文件不存在"
+                errors.append(f"{path}: {msg}")
+                self.file_finished.emit(path, False, msg)
                 continue
             
             self.progress.emit(int(i / total * 100), f"正在粉碎: {os.path.basename(path)}")
             
-            # 尝试解除占用（简单处理：查找并提示，或尝试强制删除）
-            # 真正的粉碎通常涉及多次覆写，但用户这里的意思更偏向于“强制删除”
+            # 尝试解除占用
             success, msg = force_delete(path)
             if success:
                 success_count += 1
+                self.file_finished.emit(path, True, "已粉碎")
             else:
                 fail_count += 1
                 errors.append(f"{path}: {msg}")
+                self.file_finished.emit(path, False, msg)
         
         self.finished.emit(success_count, fail_count, errors)
