@@ -1,4 +1,4 @@
-使用该软件时请先阅读 `Windows Desktop Tool\requirements.txt` 免责声明文件
+使用该软件时请先阅读 `Windows Desktop Tool\disclaimer.txt` 免责声明文件
 
 #  Windows 桌面工具 ( Windows Desktop Tool)
 
