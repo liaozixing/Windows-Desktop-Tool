@@ -16,10 +16,11 @@ from ui.components import GaugeWidget, LineChartWidget, CircleStartButton
 from modules.ip_query import get_public_ip_info
 from modules.system_functions import (open_cmd, open_task_manager, open_explorer, 
                                      open_group_policy, open_run_dialog, 
-                                     scan_cleanable_files, execute_cleanup, format_size)
+                                     get_activation_status)
 from modules.settings import load_settings, save_settings, set_auto_start
 from modules.network_speed import run_speed_test
 from modules.window_tool import get_window_info_at, open_file_location
+from modules.file_shredder import ShredderWorker, is_system_path, ValidationWorker
 
 class IPWorker(QThread):
     finished = pyqtSignal(dict)
@@ -40,28 +41,6 @@ class SpeedTestWorker(QThread):
     def run(self):
         result = run_speed_test(self.progress.emit, provider=self.provider, metric_callback=self.metric.emit)
         self.finished.emit(result)
-
-class DiskCleanupWorker(QThread):
-    """ 磁盘清理工作线程 """
-    scan_finished = pyqtSignal(list, int)
-    cleanup_progress = pyqtSignal(int, str)
-    cleanup_finished = pyqtSignal(int)
-
-    def __init__(self, mode="scan", categories=None):
-        super().__init__()
-        self.mode = mode
-        self.categories = categories
-
-    def run(self):
-        if self.mode == "scan":
-            items, total = scan_cleanable_files()
-            self.scan_finished.emit(items, total)
-        elif self.mode == "cleanup":
-            def progress_cb(p, m):
-                self.cleanup_progress.emit(p, m)
-            
-            cleaned_size = execute_cleanup(self.categories, progress_cb)
-            self.cleanup_finished.emit(cleaned_size)
 
 class IPInterface(QWidget):
     """ IP 查询界面 """
@@ -114,6 +93,18 @@ class SystemInterface(QWidget):
         tools_layout.addWidget(self.btn_env, 1, 2)
         layout.addLayout(tools_layout)
 
+        layout.addSpacing(20)
+        self.other_title = SubtitleLabel("其他工具", self)
+        self.other_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        layout.addWidget(self.other_title)
+
+        other_layout = QGridLayout()
+        self.btn_activation = PushButton(FIF.ACCEPT, "系统激活状态", self)
+        other_layout.addWidget(self.btn_activation, 0, 0)
+        other_layout.setColumnStretch(1, 1)
+        other_layout.setColumnStretch(2, 1)
+        layout.addLayout(other_layout)
+
         layout.addStretch(1)
 
         # 绑定信号
@@ -123,94 +114,11 @@ class SystemInterface(QWidget):
         self.btn_gpedit.clicked.connect(open_group_policy)
         self.btn_run.clicked.connect(open_run_dialog)
         self.btn_env.clicked.connect(lambda: os.system("rundll32.exe sysdm.cpl,EditEnvironmentVariables"))
+        self.btn_activation.clicked.connect(self.show_activation_status)
 
-    def start_scan(self):
-        """ 开始扫描磁盘垃圾 """
-        self.btn_disk_cleanup.setEnabled(False)
-        self.btn_disk_cleanup.setText("正在扫描...")
-        self.cleanup_info_label.setText("正在深度扫描系统临时文件、缓存和回收站...")
-        
-        # 强制更新样式，防止深色模式下禁用状态颜色不明显
-        self.btn_disk_cleanup.update()
-        
-        self.scan_worker = DiskCleanupWorker(mode="scan")
-        self.scan_worker.scan_finished.connect(self.on_scan_finished)
-        self.scan_worker.start()
-
-    def on_scan_finished(self, items, total):
-        """ 扫描完成 """
-        self.btn_disk_cleanup.setEnabled(True)
-        self.btn_disk_cleanup.setText("立即清理")
-        
-        if total == 0:
-            self.cleanup_info_label.setText("系统非常干净，无需清理！")
-            self.btn_disk_cleanup.setText("重新扫描")
-            return
-
-        formatted_total = format_size(total)
-        self.cleanup_info_label.setText(f"发现可清理空间: {formatted_total}")
-        
-        # 切换点击信号到清理
-        self.btn_disk_cleanup.clicked.disconnect()
-        self.btn_disk_cleanup.clicked.connect(lambda: self.confirm_cleanup(items, total))
-
-    def confirm_cleanup(self, items, total):
-        """ 二次确认清理 """
-        formatted_total = format_size(total)
-        msg_box = MessageBox(
-            "确认清理",
-            f"确定要清理以下内容吗？\n\n" + 
-            "\n".join([f"• {item['category']}: {item['formatted_size']}" for item in items]) + 
-            f"\n\n总计释放空间: {formatted_total}",
-            self.window()
-        )
-        msg_box.yesButton.setText("确定清理")
-        msg_box.cancelButton.setText("取消")
-        
-        if msg_box.exec_():
-            self.start_cleanup([item['category'] for item in items])
-
-    def start_cleanup(self, categories):
-        """ 开始执行清理 """
-        self.btn_disk_cleanup.setEnabled(False)
-        self.btn_disk_cleanup.setText("正在清理...")
-        
-        # 显示进度条
-        if not hasattr(self, 'cleanup_progress_bar'):
-            self.cleanup_progress_bar = ProgressBar(self)
-            self.cleanup_progress_bar.setFixedWidth(300)
-            self.layout().insertWidget(self.layout().count() - 1, self.cleanup_progress_bar)
-            
-        self.cleanup_progress_bar.show()
-        self.cleanup_progress_bar.setValue(0)
-        
-        self.cleanup_worker = DiskCleanupWorker(mode="cleanup", categories=categories)
-        self.cleanup_worker.cleanup_progress.connect(self.on_cleanup_progress)
-        self.cleanup_worker.cleanup_finished.connect(self.on_cleanup_finished)
-        self.cleanup_worker.start()
-
-    def on_cleanup_progress(self, progress, message):
-        self.cleanup_progress_bar.setValue(progress)
-        self.cleanup_info_label.setText(message)
-
-    def on_cleanup_finished(self, cleaned_size):
-        self.btn_disk_cleanup.setEnabled(True)
-        self.btn_disk_cleanup.setText("开始扫描磁盘垃圾")
-        self.cleanup_progress_bar.hide()
-        
-        formatted_cleaned = format_size(cleaned_size)
-        self.cleanup_info_label.setText(f"清理完成！共释放空间: {formatted_cleaned}")
-        
-        InfoBar.success(
-            "清理成功",
-            f"已成功释放 {formatted_cleaned} 磁盘空间",
-            duration=3000,
-            parent=self.window()
-        )
-        
-        # 恢复点击信号到扫描
-        self.btn_disk_cleanup.clicked.disconnect()
-        self.btn_disk_cleanup.clicked.connect(self.start_scan)
+    def show_activation_status(self):
+        status = get_activation_status()
+        MessageBox("系统激活状态", status, self.window()).exec_()
 
 class SpeedTestInterface(QWidget):
     """ 网速测试界面 """
@@ -738,6 +646,273 @@ class WindowToolInterface(QWidget):
         for i in range(5):
             getattr(self, f"val_{i}").setStyleSheet(f"color:{val_color}; font-size: 13px;")
 
+class ShredderInterface(QWidget):
+    """ 文件粉碎界面 """
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.setObjectName("ShredderInterface")
+        self.setAcceptDrops(True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(15)
+
+        self.title = SubtitleLabel("文件粉碎", self)
+        self.title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        layout.addWidget(self.title)
+
+        self.desc = BodyLabel("将需要销毁的文件或文件夹拖入此处，或点击下方按钮添加。", self)
+        layout.addWidget(self.desc)
+
+        # 文件列表
+        self.file_list = TableWidget(self)
+        self.file_list.setColumnCount(2)
+        self.file_list.setHorizontalHeaderLabels(["路径", "类型"])
+        self.file_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.file_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.file_list.setColumnWidth(1, 100)
+        layout.addWidget(self.file_list)
+
+        # 按钮栏
+        btn_layout = QHBoxLayout()
+        self.btn_add_file = PushButton(FIF.ADD, "添加文件", self)
+        self.btn_add_folder = PushButton(FIF.FOLDER, "添加文件夹", self)
+        self.btn_remove = PushButton(FIF.REMOVE, "移除选中", self)
+        self.btn_clear = PushButton(FIF.DELETE, "清空列表", self)
+        self.btn_shred = PrimaryPushButton(FIF.BROOM, "立即粉碎", self)
+        
+        btn_layout.addWidget(self.btn_add_file)
+        btn_layout.addWidget(self.btn_add_folder)
+        btn_layout.addWidget(self.btn_remove)
+        btn_layout.addWidget(self.btn_clear)
+        btn_layout.addStretch(1)
+        btn_layout.addWidget(self.btn_shred)
+        layout.addLayout(btn_layout)
+
+        # 进度条
+        self.progress_bar = ProgressBar(self)
+        self.progress_bar.hide()
+        layout.addWidget(self.progress_bar)
+
+        self.status_label = CaptionLabel("", self)
+        layout.addWidget(self.status_label)
+
+        # 绑定信号
+        self.btn_add_file.clicked.connect(self.add_files)
+        self.btn_add_folder.clicked.connect(self.add_folder)
+        self.btn_remove.clicked.connect(self.remove_selected)
+        self.btn_clear.clicked.connect(self.clear_list)
+        self.btn_shred.clicked.connect(self.start_shredding)
+
+        self.paths = set()
+        self.system_paths = set() # 新增：记录系统文件路径
+        self.update_desc()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        files = [url.toLocalFile() for url in event.mimeData().urls()]
+        self.add_paths(files)
+
+    def add_files(self):
+        from PyQt5.QtWidgets import QFileDialog
+        files, _ = QFileDialog.getOpenFileNames(self, "选择文件", "", "所有文件 (*.*)")
+        if files:
+            self.add_paths(files)
+
+    def add_folder(self):
+        from PyQt5.QtWidgets import QFileDialog
+        folder = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        if folder:
+            self.add_paths([folder])
+
+    def add_paths(self, paths):
+        to_validate = []
+        for path in paths:
+            path = os.path.normpath(path)
+            if path in self.paths or path in self.system_paths:
+                continue
+
+            # 快速路径校验（不检查进程占用，防止 UI 卡死）
+            is_sys, reason = is_system_path(path, check_processes=False)
+            
+            row = self.file_list.rowCount()
+            self.file_list.insertRow(row)
+            self.file_list.setItem(row, 0, QTableWidgetItem(path))
+            
+            if is_sys:
+                self.system_paths.add(path)
+                item = QTableWidgetItem("【系统文件】")
+                item.setForeground(QColor("#ff4d4f"))
+                self.file_list.setItem(row, 1, item)
+                
+                InfoBar.error(
+                    "安全警告",
+                    f"检测到系统关键文件：{os.path.basename(path)}\n为防止系统损坏，已禁止操作",
+                    duration=3000,
+                    parent=self.window()
+                )
+                QTimer.singleShot(2000, lambda p=path: self.remove_path(p))
+            else:
+                self.paths.add(path)
+                self.file_list.setItem(row, 1, QTableWidgetItem("文件夹" if os.path.isdir(path) else "文件"))
+                to_validate.append(path)
+        
+        # 启动后台校验 worker 检查占用情况
+        if to_validate:
+            self.status_label.setText("正在执行深度安全检查...")
+            self.validator = ValidationWorker(to_validate)
+            self.validator.finished.connect(self.on_validation_finished)
+            self.validator.start()
+            
+        self.update_desc()
+
+    def on_validation_finished(self, path, is_sys, reason):
+        """ 后台深度校验回调 """
+        self.status_label.setText("")
+        if is_sys:
+            # 发现是被系统占用的文件，将其转入系统文件列表
+            if path in self.paths:
+                self.paths.remove(path)
+            self.system_paths.add(path)
+            
+            # 更新 UI 状态
+            for row in range(self.file_list.rowCount()):
+                if self.file_list.item(row, 0).text() == path:
+                    item = QTableWidgetItem("【系统占用】")
+                    item.setForeground(QColor("#ff4d4f"))
+                    self.file_list.setItem(row, 1, item)
+                    break
+            
+            InfoBar.error(
+                "安全警告",
+                f"文件被系统关键进程占用：{os.path.basename(path)}\n已禁止操作",
+                duration=3000,
+                parent=self.window()
+            )
+            QTimer.singleShot(2000, lambda p=path: self.remove_path(p))
+            self.update_desc()
+
+    def remove_path(self, path):
+        """ 移除指定路径的文件 """
+        for row in range(self.file_list.rowCount()):
+            if self.file_list.item(row, 0).text() == path:
+                self.file_list.removeRow(row)
+                break
+        if path in self.paths:
+            self.paths.remove(path)
+        if path in self.system_paths:
+            self.system_paths.remove(path)
+        self.update_desc()
+
+    def remove_selected(self):
+        selected_ranges = self.file_list.selectedRanges()
+        if not selected_ranges:
+            return
+        
+        # 从后往前删，避免索引偏移
+        rows_to_remove = []
+        for r in selected_ranges:
+            for row in range(r.topRow(), r.bottomRow() + 1):
+                rows_to_remove.append(row)
+        
+        rows_to_remove = sorted(list(set(rows_to_remove)), reverse=True)
+        for row in rows_to_remove:
+            path = self.file_list.item(row, 0).text()
+            if path in self.paths:
+                self.paths.remove(path)
+            if path in self.system_paths:
+                self.system_paths.remove(path)
+            self.file_list.removeRow(row)
+        self.update_desc()
+
+    def clear_list(self):
+        self.paths.clear()
+        self.system_paths.clear()
+        self.file_list.setRowCount(0)
+        self.update_desc()
+
+    def update_desc(self):
+        if not self.paths and not self.system_paths:
+            self.desc.setText("当前没有待粉碎文件，请拖入需要处理的文件。")
+            self.btn_shred.setEnabled(False)
+        elif self.system_paths:
+            self.desc.setText("列表中包含系统关键文件，已禁止粉碎操作。")
+            self.btn_shred.setEnabled(False)
+        else:
+            self.desc.setText(f"已选择 {len(self.paths)} 个项目，准备粉碎。")
+            self.btn_shred.setEnabled(True)
+
+    def start_shredding(self):
+        if not self.paths:
+            InfoBar.warning("提示", "请先添加需要粉碎的文件或文件夹", duration=2000, parent=self.window())
+            return
+
+        msg_box = MessageBox(
+            "确认粉碎",
+            "确定要粉碎选中的文件吗？粉碎后数据将无法恢复，且会尝试解除占用强制删除！",
+            self.window()
+        )
+        msg_box.yesButton.setText("确定粉碎")
+        msg_box.cancelButton.setText("取消")
+        
+        if msg_box.exec_():
+            self.set_controls_enabled(False)
+            self.progress_bar.show()
+            self.progress_bar.setValue(0)
+            
+            self.worker = ShredderWorker(list(self.paths))
+            self.worker.progress.connect(self.on_progress)
+            self.worker.finished.connect(self.on_finished)
+            self.worker.start()
+
+    def set_controls_enabled(self, enabled):
+        """ 控制界面按钮的可操作性 """
+        self.btn_shred.setEnabled(enabled)
+        self.btn_add_file.setEnabled(enabled)
+        self.btn_add_folder.setEnabled(enabled)
+        self.btn_clear.setEnabled(enabled)
+        self.btn_remove.setEnabled(enabled)
+        self.file_list.setEnabled(enabled)
+
+    def on_progress(self, val, msg):
+        self.progress_bar.setValue(val)
+        self.status_label.setText(msg)
+
+    def on_finished(self, success, fail, errors):
+        self.set_controls_enabled(True)
+        self.progress_bar.hide()
+        self.status_label.setText("")
+        
+        if fail == 0:
+            InfoBar.success("粉碎完成", "文件已彻底粉碎，无法恢复", duration=3000, parent=self.window())
+            self.clear_list()
+        else:
+            msg = f"成功: {success}, 失败: {fail}"
+            if errors:
+                msg += "\n部分错误: " + "\n".join(errors[:3])
+            InfoBar.error("部分项目粉碎失败", msg, duration=5000, parent=self.window())
+        
+        self.update_desc()
+
+    def set_theme(self, is_dark):
+        if is_dark:
+            bg_color = "#1d1d1d"
+            text_color = "#e0e0e0"
+            sub_text = "#a0a0a0"
+        else:
+            bg_color = "#f7f9fc"
+            text_color = "#333333"
+            sub_text = "#666666"
+
+        self.setStyleSheet(f"#ShredderInterface{{background-color:{bg_color};}}")
+        self.title.setStyleSheet(f"color:{text_color}; font-size: 16px; font-weight: 600;")
+        self.desc.setStyleSheet(f"color:{sub_text};")
+        self.status_label.setStyleSheet(f"color:{sub_text};")
+
 class SettingsInterface(QWidget):
     """ 设置界面 """
     def __init__(self, parent=None):
@@ -764,9 +939,26 @@ class SettingsInterface(QWidget):
         layout.addWidget(theme_label)
         
         self.theme_box = ComboBox(self)
-        self.theme_box.addItems(["浅色", "深色", "跟随系统"])
+        self.theme_box.addItems(["浅色", "深色"])
         self.theme_box.setFixedWidth(200)
         layout.addWidget(self.theme_box)
+
+        layout.addSpacing(30)
+        changelog_label = StrongBodyLabel("更新日志 (v1.1.1)", self)
+        changelog_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        layout.addWidget(changelog_label)
+
+        self.changelog_display = TextEdit(self)
+        self.changelog_display.setReadOnly(True)
+        self.changelog_display.setFixedHeight(120)
+        self.changelog_display.setText(
+            "v1.1.1 测试版 (2026-01-18)\n"
+            "1. [优化] 深度检查性能：重构文件锁定检查逻辑，大幅提升批量处理速度，解决拖入卡顿。\n"
+            "2. [安全] 系统保护增强：完善系统关键文件拦截机制，增加后台异步深度扫描。\n"
+            "3. [交互] 优化粉碎界面按钮状态智能控制，操作反馈更清晰。\n"
+            "4. [本地化] 完成 UI 组件库核心代码的中文注释标注。"
+        )
+        layout.addWidget(self.changelog_display)
 
         layout.addStretch(1)
 
@@ -787,6 +979,7 @@ class MainWindow(FluentWindow):
         self.ip_interface = IPInterface(self)
         self.system_interface = SystemInterface(self)
         self.speed_interface = SpeedTestInterface(self)
+        self.shredder_interface = ShredderInterface(self)
         self.window_tool_interface = WindowToolInterface(self)
         self.settings_interface = SettingsInterface(self)
 
@@ -802,21 +995,24 @@ class MainWindow(FluentWindow):
     def init_navigation(self):
         self.addSubInterface(self.ip_interface, FIF.GLOBE, 'IP查询')
         self.addSubInterface(self.speed_interface, FIF.SPEED_HIGH, '网速测试')
+        self.addSubInterface(self.shredder_interface, FIF.BROOM, '文件粉碎')
         self.addSubInterface(self.window_tool_interface, FIF.SEARCH, '窗口定位')
         self.addSubInterface(self.system_interface, FIF.APPLICATION, '系统功能')
         self.addSubInterface(self.settings_interface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
         
-        # 添加 GitHub 图标
+        # 添加 GitHub 图标 (点击直接跳转，不进入选中状态)
+        import webbrowser
         self.navigationInterface.addItem(
             routeKey='GitHub',
             icon=FIF.GITHUB,
             text='GitHub',
-            onClick=lambda: InfoBar.info("提示", "正在开发中...", duration=2000, parent=self),
-            position=NavigationItemPosition.BOTTOM
+            onClick=lambda: webbrowser.open("https://github.com/liaozixing/Windows-Desktop-Tool"),
+            position=NavigationItemPosition.BOTTOM,
+            selectable=False
         )
 
     def init_window(self):
-        self.setWindowTitle("全能Windows桌面工具 v1.0.0测试版")
+        self.setWindowTitle("全能Windows桌面工具 v1.1.1测试版")
         self.resize(750, 520)
         
         # 使用 SVG 图标，确保矢量图形在任何缩放比例下都清晰且保留透明度
@@ -828,9 +1024,8 @@ class MainWindow(FluentWindow):
         self.app_icon = QIcon(icon_path)
         self.setWindowIcon(self.app_icon)
         
-        # 强制设置初始主题为浅色 (无论系统主题如何)
-        # 只有在用户手动切换后才会改变
-        setTheme(Theme.LIGHT)
+        # 强制设置初始主题为深色
+        setTheme(Theme.DARK)
         
         # 确保在窗口首次显示时再次强制刷新一次主题样式
         QTimer.singleShot(100, self._sync_theme_styles)
@@ -883,30 +1078,26 @@ class MainWindow(FluentWindow):
 
     def _sync_theme_styles(self):
         """ 同步所有子界面和标题栏的主题样式 """
-        theme_setting = self.settings.get("theme", "跟随系统")
+        theme_setting = self.settings.get("theme", "深色")
         
-        if theme_setting == "深色":
-            is_dark = True
-            setTheme(Theme.DARK)
-        elif theme_setting == "浅色":
+        if theme_setting == "浅色":
             is_dark = False
             setTheme(Theme.LIGHT)
         else:
-            # 跟随系统
-            is_dark = isDarkTheme()
-            setTheme(Theme.AUTO)
+            # 默认深色
+            is_dark = True
+            setTheme(Theme.DARK)
         
         # 同步子界面主题
         if hasattr(self, 'speed_interface'):
             self.speed_interface.set_theme(is_dark)
         if hasattr(self, 'window_tool_interface'):
             self.window_tool_interface.set_theme(is_dark)
+        if hasattr(self, 'shredder_interface'):
+            self.shredder_interface.set_theme(is_dark)
         
-        # 修复标题栏颜色 (针对启动和切换时的颜色同步问题)
-        # 使用 singleShot 延迟执行，并在回调中重新检测主题状态，解决切换时的 race condition
-        QTimer.singleShot(150, lambda: self._update_title_bar_style(
-            isDarkTheme() if theme_setting == "跟随系统" else (theme_setting == "深色")
-        ))
+        # 修复标题栏颜色
+        QTimer.singleShot(150, lambda: self._update_title_bar_style(is_dark))
 
     def _update_title_bar_style(self, is_dark):
         """ 
@@ -1010,7 +1201,12 @@ class MainWindow(FluentWindow):
     def load_config_to_ui(self):
         self.settings_interface.cb_auto_start.setChecked(self.settings.get("auto_start", False))
         self.settings_interface.cb_minimize_tray.setChecked(self.settings.get("minimize_to_tray", True))
-        self.settings_interface.theme_box.setCurrentText(self.settings.get("theme", "跟随系统"))
+        
+        # 处理可能的“跟随系统”旧配置
+        current_theme = self.settings.get("theme", "深色")
+        if current_theme == "跟随系统":
+            current_theme = "深色"
+        self.settings_interface.theme_box.setCurrentText(current_theme)
         
         # Apply accent color
         accent_color = self.settings.get("accent_color", "#1677ff")

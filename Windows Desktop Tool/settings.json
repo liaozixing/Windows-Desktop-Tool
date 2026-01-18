@@ -1,5 +1,5 @@
 {
-    "auto_start": false,
+    "auto_start": true,
     "minimize_to_tray": false,
     "theme": "浅色",
     "accent_color": "#ffaaff"

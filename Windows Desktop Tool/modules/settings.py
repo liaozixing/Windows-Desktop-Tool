@@ -53,7 +53,7 @@ def load_settings():
     return {
         "auto_start": False,
         "minimize_to_tray": True,
-        "theme": "浅色",
+        "theme": "深色",
         "accent_color": "#1677ff",
         "language": "简体中文"
     }

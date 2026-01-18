@@ -5,13 +5,6 @@ from PyQt5.QtWidgets import QApplication
 from qfluentwidgets import setTheme, Theme, FluentTranslator
 from ui.main_window import MainWindow
 
-def get_resource_path(relative_path):
-    """ 获取资源文件的绝对路径，兼容开发环境和 PyInstaller 打包环境 """
-    if hasattr(sys, '_MEIPASS'):
-        # PyInstaller 打包后的临时目录
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
-
 def main():
     # 启用高 DPI 缩放支持
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)

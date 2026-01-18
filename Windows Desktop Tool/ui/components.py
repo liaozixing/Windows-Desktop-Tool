@@ -4,6 +4,7 @@ from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPolygonF
 
 
 class GaugeWidget(QWidget):
+    """ 仪表盘控件 """
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self._value = 0.0
@@ -12,7 +13,7 @@ class GaugeWidget(QWidget):
         self.title = "速度"
         self.is_dark = False
 
-        # Default colors
+        # 默认颜色设置
         self.accent_color = QColor(22, 119, 255)
         self.needle_color = QColor(22, 119, 255)
         self._update_colors()
@@ -24,6 +25,7 @@ class GaugeWidget(QWidget):
         self.setMinimumSize(220, 220)
 
     def _update_colors(self):
+        """ 根据主题更新颜色配置 """
         if self.is_dark:
             self.text_color = QColor(224, 224, 224)    # #e0e0e0
             self.subtext_color = QColor(160, 160, 160) # #a0a0a0
@@ -38,20 +40,24 @@ class GaugeWidget(QWidget):
             self.center_bg = QColor(245, 247, 250)
 
     def set_dark_mode(self, is_dark):
+        """ 设置深色模式 """
         self.is_dark = is_dark
         self._update_colors()
         self.update()
 
     @pyqtProperty(float)
     def value(self):
+        """ 获取当前数值 """
         return float(self._value)
 
     @value.setter
     def value(self, v):
+        """ 设置当前数值并重绘 """
         self._value = float(v)
         self.update()
 
     def set_value(self, v, animated=True):
+        """ 设置数值，支持动画过渡 """
         v = float(v)
         if animated:
             self.animation.stop()
@@ -62,10 +68,12 @@ class GaugeWidget(QWidget):
             self.value = v
 
     def set_max_value(self, max_v):
+        """ 设置最大量程 """
         self._max_value = float(max_v)
         self.update()
 
     def set_accent_color(self, color):
+        """ 设置主题强调色 """
         if isinstance(color, str):
             color = QColor(color)
         self.accent_color = color
@@ -73,6 +81,7 @@ class GaugeWidget(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        """ 绘图事件：绘制仪表盘各组件 """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -80,24 +89,28 @@ class GaugeWidget(QWidget):
         h = self.height()
         side = min(w, h)
 
+        # 平移并缩放坐标系以适应控件大小
         painter.translate(w / 2, h / 2)
         painter.scale(side / 220, side / 220)
 
-        self._draw_gauge(painter)
-        self._draw_needle(painter)
-        self._draw_text(painter)
+        self._draw_gauge(painter)  # 绘制刻度盘
+        self._draw_needle(painter) # 绘制指针
+        self._draw_text(painter)   # 绘制中心文字
 
     def _draw_gauge(self, painter):
+        """ 绘制圆环、进度条及刻度 """
         rect = QRectF(-90, -90, 180, 180)
 
         start_deg = 225.0
         span_deg = 270.0
 
+        # 绘制背景圆环
         bg_pen = QPen(self.ring_bg_color, 12)
         bg_pen.setCapStyle(Qt.RoundCap)
         painter.setPen(bg_pen)
         painter.drawArc(rect, int(start_deg * 16), int(-span_deg * 16))
 
+        # 计算并绘制进度圆环
         progress = 0.0
         if self._max_value > 0:
             progress = min(max(self._value / self._max_value, 0.0), 1.0)
@@ -110,6 +123,7 @@ class GaugeWidget(QWidget):
             painter.setPen(progress_pen)
             painter.drawArc(rect, int(start_deg * 16), int(-(progress * span_deg) * 16))
 
+        # 绘制刻度线
         painter.setPen(QPen(self.tick_color, 1))
         for i in range(51):
             angle = start_deg - (i * (span_deg / 50))
@@ -120,6 +134,7 @@ class GaugeWidget(QWidget):
             painter.drawLine(0, -90, 0, -78 if major else -84)
             painter.restore()
 
+        # 绘制刻度数值
         for i in range(11):
             angle = start_deg - (i * (span_deg / 10))
             val = int(i * (self._max_value / 10))
@@ -133,6 +148,7 @@ class GaugeWidget(QWidget):
             painter.restore()
 
     def _draw_needle(self, painter):
+        """ 绘制动态指针 """
         painter.save()
         progress = 0.0
         if self._max_value > 0:
@@ -142,11 +158,13 @@ class GaugeWidget(QWidget):
         angle = start_deg - (progress * span_deg)
         painter.rotate(-angle)
 
+        # 绘制指针形状
         needle = QPolygonF([QPointF(-4, 0), QPointF(4, 0), QPointF(0, -78)])
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(self.needle_color.red(), self.needle_color.green(), self.needle_color.blue(), 220))
         painter.drawPolygon(needle)
 
+        # 绘制中心圆点装饰
         painter.setBrush(self.center_bg)
         painter.drawEllipse(QRectF(-11, -11, 22, 22))
         painter.setBrush(QColor(255, 255, 255, 220))
@@ -154,6 +172,7 @@ class GaugeWidget(QWidget):
         painter.restore()
 
     def _draw_text(self, painter):
+        """ 绘制数值、单位及标题 """
         painter.save()
         painter.setPen(self.text_color)
         painter.setFont(QFont("Segoe UI", 28, QFont.Bold))
@@ -170,6 +189,7 @@ class GaugeWidget(QWidget):
 
 
 class LineChartWidget(QWidget):
+    """ 线性图表控件 """
     def __init__(self, parent=None, accent=None):
         super().__init__(parent=parent)
         self._values = []
@@ -181,6 +201,7 @@ class LineChartWidget(QWidget):
         self.setMinimumHeight(100)
 
     def _update_colors(self):
+        """ 更新网格及背景颜色 """
         if self.is_dark:
             self.grid_color = QColor(51, 51, 51)      # #333333
             self.bg_color = QColor(0, 0, 0, 0)
@@ -189,27 +210,32 @@ class LineChartWidget(QWidget):
             self.bg_color = QColor(255, 255, 255, 0)
 
     def set_dark_mode(self, is_dark):
+        """ 设置深色模式 """
         self.is_dark = is_dark
         self._update_colors()
         self.update()
 
     def set_accent_color(self, color):
+        """ 设置图表线条颜色 """
         if isinstance(color, str):
             color = QColor(color)
         self.accent = color
         self.update()
 
     def clear(self):
+        """ 清空图表数据 """
         self._values = []
         self.update()
 
     def add_value(self, v):
+        """ 添加新的数据点并更新界面 """
         self._values.append(float(v))
         if len(self._values) > self.max_points:
             self._values = self._values[-self.max_points:]
         self.update()
 
     def paintEvent(self, event):
+        """ 绘图事件：绘制网格、曲线及填充区域 """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -218,6 +244,7 @@ class LineChartWidget(QWidget):
 
         painter.fillRect(0, 0, w, h, self.bg_color)
 
+        # 绘制背景网格线
         painter.setPen(QPen(self.grid_color, 1))
         for i in range(1, 9):
             x = int(w * i / 9)
@@ -232,12 +259,14 @@ class LineChartWidget(QWidget):
         max_v = max(self._values)
         max_v = max(max_v, 1.0)
 
+        # 计算所有数据点的坐标
         points = []
         for idx, v in enumerate(self._values):
             x = int(idx * (w - 1) / max(len(self._values) - 1, 1))
             y = int(h - 1 - (v / max_v) * (h - 6))
             points.append(QPointF(x, y))
 
+        # 绘制曲线下方的填充渐变色块
         if points:
             area = list(points)
             area.append(QPointF(points[-1].x(), h))
@@ -246,24 +275,25 @@ class LineChartWidget(QWidget):
             painter.setBrush(QColor(self.accent.red(), self.accent.green(), self.accent.blue(), self.fill_alpha))
             painter.drawPolygon(QPolygonF(area))
 
+        # 绘制主曲线线条
         painter.setPen(QPen(self.accent, 2))
         painter.drawPolyline(QPolygonF(points))
 
 
 class CircleStartButton(QPushButton):
+    """ 圆形启动按钮控件 """
     def set_accent_color(self, color):
+        """ 动态设置按钮强调色及其悬停/按下状态 """
         if isinstance(color, QColor):
             color_name = color.name()
         else:
             color_name = str(color)
             color = QColor(color_name)
             
-        # Derive hover and pressed colors
+        # 衍生出悬停和按下的颜色深度
         hover = color.lighter(110).name()
         pressed = color.darker(110).name()
         
-        # Determine if parent or system is in dark mode for better disabled styling
-        # Defaulting to a neutral approach
         self.setStyleSheet(f"""
             QPushButton{{
                 background-color: {color_name};
@@ -285,6 +315,7 @@ class CircleStartButton(QPushButton):
         super().__init__(text, parent=parent)
         self.setFixedSize(140, 140)
         self.setCursor(Qt.PointingHandCursor)
+        # 初始默认样式（渐变色）
         self.setStyleSheet(
             "QPushButton{"
             "background-color:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1677ff, stop:1 #36cfc9);"
