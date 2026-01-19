@@ -3,7 +3,15 @@ import sys
 import winreg
 import json
 
-CONFIG_FILE = "settings.json"
+APP_NAME = "UniversalWindowsDesktopTool"
+if getattr(sys, "frozen", False):
+    _BASE_DIR = os.path.dirname(sys.executable)
+else:
+    _BASE_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+_CONFIG_ROOT = os.getenv("APPDATA") or _BASE_DIR
+_CONFIG_DIR = os.path.join(_CONFIG_ROOT, APP_NAME)
+CONFIG_FILE = os.path.join(_CONFIG_DIR, "settings.json")
 
 def set_auto_start(enabled=True):
     """设置或取消开机自启动 (通过注册表)"""
@@ -33,6 +41,7 @@ def set_auto_start(enabled=True):
 def save_settings(settings):
     """保存配置到 JSON 文件"""
     try:
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(settings, f, indent=4, ensure_ascii=False)
         return True
@@ -48,8 +57,15 @@ def load_settings():
                 return json.load(f)
         except Exception as e:
             print(f"加载配置失败: {e}")
-    
-    # 默认配置
+    legacy_file = os.path.join(_BASE_DIR, "settings.json")
+    if os.path.exists(legacy_file):
+        try:
+            with open(legacy_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            save_settings(data)
+            return data
+        except Exception as e:
+            print(f"迁移旧配置失败: {e}")
     return {
         "auto_start": False,
         "minimize_to_tray": True,

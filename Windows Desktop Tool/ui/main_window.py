@@ -3,7 +3,8 @@ import os
 import socket
 import subprocess
 from modules.file_converter import (svg_to_ico, image_convert, pdf_to_word, 
-                                   word_to_pdf, word_to_excel, excel_to_word)
+                                   word_to_pdf, word_to_excel, excel_to_word,
+                                   video_convert)
 from modules.network_monitor import NetworkMonitor
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTableWidgetItem, QHeaderView, QSystemTrayIcon, QMenu, QAction, QGridLayout, QStackedLayout, QSizePolicy, QColorDialog, QFileIconProvider, QFileDialog, QStackedWidget, QLabel
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer, QFileInfo, QPropertyAnimation, QEasingCurve
@@ -16,7 +17,106 @@ from qfluentwidgets import (FluentWindow, NavigationItemPosition, FluentIcon as 
                             ComboBox, ProgressBar, StrongBodyLabel, DisplayLabel,
                             CaptionLabel, setCustomStyleSheet, ThemeColor, BodyLabel, 
                             SearchLineEdit, TransparentToolButton, qconfig, isDarkTheme,
-                            ToolTipFilter, ToolTipPosition)
+                            ToolTipFilter, ToolTipPosition, ScrollArea)
+
+
+def get_app_version():
+    default_version = "v1.2.0"
+    try:
+        readme_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "README.md")
+        if os.path.exists(readme_path):
+            with open(readme_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if "版本" in line and "v" in line:
+                        parts = line.strip().split("版本：", 1)
+                        if len(parts) > 1:
+                            tail = parts[1].strip()
+                            tail = tail.lstrip("*").strip()
+                            version = tail.split("*")[0].strip()
+                            if version:
+                                return version
+    except Exception:
+        pass
+    return default_version
+
+DISCLAIMER_TEXT = """免责声明与用户协议
+
+欢迎使用本 Windows 桌面工具集（以下简称“本软件”）。在您开始使用本软件之前，请务必仔细阅读并理解以下条款：
+
+1. 软件性质与授权
+本软件是一款集合了网络监控、文件粉碎、格式转换、窗口定位及系统快捷工具的实用程序。本软件按“现状”提供，不附带任何形式的明示或暗示担保。
+
+2. 数据风险提示
+- 【文件粉碎】：此功能将采用物理覆盖方式彻底删除文件，粉碎后的数据将无法通过任何技术手段恢复。请在操作前务必确认文件无误。
+- 【格式转换】：在文档或图片转换过程中，可能会因源文件格式复杂或兼容性问题导致部分内容丢失或排版错乱。
+- 【系统工具】：本软件提供的系统快捷方式（如组策略、注册表等）涉及系统核心设置。错误的操作可能导致系统不稳定甚至崩溃。
+
+3. 责任限制
+- 用户在使用本软件过程中，因操作不当、误删除、误修改或不可抗力导致的任何数据丢失、硬件损坏、系统异常或间接损失，开发者及关联方均不承担任何法律责任。
+- 一切后果由用户自行承担。
+
+4. 隐私说明
+本软件的大部分功能（除 IP 查询、网速测试外）均在本地运行，不收集、不上传用户的任何个人文件或隐私数据。
+
+5. 同意声明
+点击“我已阅读并同意”按钮，即表示您已充分理解并接受本协议的所有条款。如果您不同意本协议的内容，请立即关闭并卸载本软件。
+
+使用本软件即视为您已阅读并同意本声明。"""
+
+class DisclaimerDialog(MessageBox):
+    """ 自定义免责声明对话框，包含倒计时和滚动校验 """
+    def __init__(self, title, content, parent=None):
+        super().__init__(title, "", parent)
+        self.content_text = content
+        
+        # 替换默认的 contentLabel
+        self.scroll_area = ScrollArea(self.widget)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFixedHeight(300)
+        self.scroll_area.setStyleSheet("border: none; background: transparent;")
+        
+        self.text_label = BodyLabel(content, self.scroll_area)
+        self.text_label.setWordWrap(True)
+        self.text_label.setContentsMargins(10, 10, 10, 10)
+        self.scroll_area.setWidget(self.text_label)
+        
+        self.textLayout.insertWidget(1, self.scroll_area)
+        
+        # 倒计时逻辑
+        self.countdown = 5
+        self.yesButton.setEnabled(False)
+        self.yesButton.setText(f"我已阅读并同意 ({self.countdown}s)")
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_timer)
+        self.timer.start(1000)
+        
+        # 滚动校验逻辑
+        self.is_scrolled_to_bottom = False
+        self.scroll_area.verticalScrollBar().valueChanged.connect(self.check_scroll)
+
+    def update_timer(self):
+        self.countdown -= 1
+        if self.countdown > 0:
+            self.yesButton.setText(f"我已阅读并同意 ({self.countdown}s)")
+        else:
+            self.timer.stop()
+            self.check_ready()
+
+    def check_scroll(self, value):
+        bar = self.scroll_area.verticalScrollBar()
+        if value >= bar.maximum() - 5: # 允许 5 像素误差
+            self.is_scrolled_to_bottom = True
+            self.check_ready()
+
+    def check_ready(self):
+        if self.countdown <= 0 and self.is_scrolled_to_bottom:
+            self.yesButton.setEnabled(True)
+            self.yesButton.setText("我已阅读并同意")
+        elif self.countdown <= 0 and not self.is_scrolled_to_bottom:
+            self.yesButton.setText("请滑到底部以继续")
+        elif self.countdown > 0:
+            self.yesButton.setText(f"我已阅读并同意 ({self.countdown}s)")
 
 from ui.components import GaugeWidget, LineChartWidget, CircleStartButton
 from modules.ip_query import get_public_ip_info
@@ -66,6 +166,32 @@ class IPInterface(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(20)
+
+        # 顶部免责声明 (显眼提示)
+        self.disclaimer_banner = QWidget(self)
+        self.disclaimer_banner.setObjectName("DisclaimerBanner")
+        banner_layout = QHBoxLayout(self.disclaimer_banner)
+        banner_layout.setContentsMargins(15, 10, 15, 10)
+        
+        # 注意：这里需要根据主题调整颜色，简单起见使用黄色背景警告色
+        self.disclaimer_banner.setStyleSheet("""
+            #DisclaimerBanner {
+                background-color: rgba(255, 193, 7, 0.15);
+                border: 1px solid rgba(255, 193, 7, 0.3);
+                border-radius: 6px;
+            }
+        """)
+        
+        warn_label = BodyLabel("⚠️ 严正声明：本工具仅供安全研究与技术交流，请勿用于非法用途。使用即代表您已同意免责声明。", self.disclaimer_banner)
+        # 适配深色/浅色模式的文字颜色，这里使用橙色系以示警告
+        warn_label.setStyleSheet("color: #d35400; font-weight: bold;")
+        banner_layout.addWidget(warn_label, 1)
+        
+        self.btn_view_disclaimer = PushButton("查看详情", self.disclaimer_banner)
+        self.btn_view_disclaimer.setFixedSize(80, 28)
+        banner_layout.addWidget(self.btn_view_disclaimer)
+        
+        layout.addWidget(self.disclaimer_banner)
         
         # 头部布局
         header_layout = QHBoxLayout()
@@ -1309,14 +1435,14 @@ class ConverterInterface(QWidget):
         header_layout.addStretch(1)
         layout.addLayout(header_layout)
 
-        # 分类切换按钮
-        self.category_layout = QHBoxLayout()
-        self.btn_img_cat = PushButton("图片转换", self)
-        self.btn_doc_cat = PushButton("文档转换", self)
-        self.category_layout.addWidget(self.btn_img_cat)
-        self.category_layout.addWidget(self.btn_doc_cat)
-        self.category_layout.addStretch(1)
-        layout.addLayout(self.category_layout)
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(StrongBodyLabel("转换类型", self))
+        self.type_box = ComboBox(self)
+        self.type_box.addItems(["图片转换", "文档转换", "视频转换"])
+        self.type_box.setFixedWidth(200)
+        type_layout.addWidget(self.type_box)
+        type_layout.addStretch(1)
+        layout.addLayout(type_layout)
 
         # 堆栈布局处理不同分类
         self.stack = QStackedWidget(self)
@@ -1332,15 +1458,11 @@ class ConverterInterface(QWidget):
         self.img_card.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); border-radius: 10px;")
         img_card_layout = QVBoxLayout(self.img_card)
         
-        self.img_type_box = ComboBox()
-        self.img_type_box.addItems(["SVG 转 ICO", "SVG 转 PNG", "图片通用转换 (PNG/JPG/WebP/BMP)"])
-        img_card_layout.addWidget(StrongBodyLabel("转换模式"))
-        img_card_layout.addWidget(self.img_type_box)
-
+        img_card_layout.addWidget(StrongBodyLabel("1. 选择源文件"))
         self.img_path_edit = SearchLineEdit()
         self.img_path_edit.setPlaceholderText("选择源图片文件...")
         self.img_path_edit.setReadOnly(True)
-        self.img_path_edit.searchButton.hide() # 隐藏失效的放大镜按钮
+        self.img_path_edit.searchButton.hide()
         self.btn_img_browse = PushButton("选择文件")
         
         row = QHBoxLayout()
@@ -1348,15 +1470,26 @@ class ConverterInterface(QWidget):
         row.addWidget(self.btn_img_browse)
         img_card_layout.addLayout(row)
 
-        self.img_target_format = ComboBox()
-        self.img_target_format.addItems(["PNG", "JPG", "WebP", "BMP", "ICO"])
-        self.img_target_format.hide() # 仅在通用转换时显示
-        self.img_target_label = StrongBodyLabel("目标格式")
-        self.img_target_label.hide()
-        img_card_layout.addWidget(self.img_target_label)
-        img_card_layout.addWidget(self.img_target_format)
+        img_card_layout.addSpacing(10)
+        img_card_layout.addWidget(StrongBodyLabel("2. 选择目标格式"))
+        
+        self.img_format_group = QHBoxLayout()
+        self.img_btn_png = PushButton("PNG", self)
+        self.img_btn_jpg = PushButton("JPG", self)
+        self.img_btn_webp = PushButton("WebP", self)
+        self.img_btn_bmp = PushButton("BMP", self)
+        self.img_btn_ico = PushButton("ICO", self)
+        
+        self.img_format_btns = [self.img_btn_png, self.img_btn_jpg, self.img_btn_webp, self.img_btn_bmp, self.img_btn_ico]
+        for btn in self.img_format_btns:
+            btn.setCheckable(True)
+            btn.clicked.connect(self.on_img_format_clicked)
+            self.img_format_group.addWidget(btn)
+        self.img_format_group.addStretch(1)
+        img_card_layout.addLayout(self.img_format_group)
 
-        self.btn_img_convert = PrimaryPushButton("开始转换图片")
+        img_card_layout.addSpacing(10)
+        self.btn_img_convert = PrimaryPushButton(FIF.SYNC, "开始转换图片")
         self.btn_img_convert.setEnabled(False)
         img_card_layout.addWidget(self.btn_img_convert)
         img_layout.addWidget(self.img_card)
@@ -1372,15 +1505,11 @@ class ConverterInterface(QWidget):
         self.doc_card.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); border-radius: 10px;")
         doc_card_layout = QVBoxLayout(self.doc_card)
 
-        self.doc_type_box = ComboBox()
-        self.doc_type_box.addItems(["PDF 转 Word", "Word 转 PDF", "Word 提取表格到 Excel", "Excel 转 Word 表格"])
-        doc_card_layout.addWidget(StrongBodyLabel("转换模式"))
-        doc_card_layout.addWidget(self.doc_type_box)
-
+        doc_card_layout.addWidget(StrongBodyLabel("1. 选择源文档"))
         self.doc_path_edit = SearchLineEdit()
         self.doc_path_edit.setPlaceholderText("选择源文档文件...")
         self.doc_path_edit.setReadOnly(True)
-        self.doc_path_edit.searchButton.hide() # 隐藏失效的放大镜按钮
+        self.doc_path_edit.searchButton.hide()
         self.btn_doc_browse = PushButton("选择文件")
         
         row2 = QHBoxLayout()
@@ -1388,81 +1517,152 @@ class ConverterInterface(QWidget):
         row2.addWidget(self.btn_doc_browse)
         doc_card_layout.addLayout(row2)
 
-        self.btn_doc_convert = PrimaryPushButton("开始转换文档")
+        doc_card_layout.addSpacing(10)
+        doc_card_layout.addWidget(StrongBodyLabel("2. 选择目标格式"))
+        self.doc_target_box = ComboBox(self)
+        self.doc_target_box.addItem("Word 文档 (*.docx)", "docx")
+        self.doc_target_box.addItem("PDF 文档 (*.pdf)", "pdf")
+        self.doc_target_box.addItem("Excel 表格 (*.xlsx)", "xlsx")
+        self.doc_target_box.setFixedWidth(260)
+        doc_card_layout.addWidget(self.doc_target_box)
+
+        doc_card_layout.addSpacing(10)
+        self.btn_doc_convert = PrimaryPushButton(FIF.SYNC, "开始转换文档")
         self.btn_doc_convert.setEnabled(False)
         doc_card_layout.addWidget(self.btn_doc_convert)
         doc_layout.addWidget(self.doc_card)
         doc_layout.addStretch(1)
 
+        self.video_panel = QWidget()
+        video_layout = QVBoxLayout(self.video_panel)
+        video_layout.setContentsMargins(0, 10, 0, 0)
+        video_layout.setSpacing(15)
+
+        self.video_card = QWidget()
+        self.video_card.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); border-radius: 10px;")
+        video_card_layout = QVBoxLayout(self.video_card)
+
+        video_card_layout.addWidget(StrongBodyLabel("1. 选择源视频"))
+        self.video_path_edit = SearchLineEdit()
+        self.video_path_edit.setPlaceholderText("选择源视频文件...")
+        self.video_path_edit.setReadOnly(True)
+        self.video_path_edit.searchButton.hide()
+        self.btn_video_browse = PushButton("选择文件")
+
+        row3 = QHBoxLayout()
+        row3.addWidget(self.video_path_edit)
+        row3.addWidget(self.btn_video_browse)
+        video_card_layout.addLayout(row3)
+
+        video_card_layout.addSpacing(10)
+        video_card_layout.addWidget(StrongBodyLabel("2. 选择目标格式"))
+        self.video_format_box = ComboBox(self)
+        self.video_format_box.addItems(["MP4", "MKV", "MOV", "AVI"])
+        self.video_format_box.setFixedWidth(200)
+        video_card_layout.addWidget(self.video_format_box)
+
+        video_card_layout.addSpacing(10)
+        self.btn_video_convert = PrimaryPushButton(FIF.SYNC, "开始转换视频")
+        self.btn_video_convert.setEnabled(False)
+        video_card_layout.addWidget(self.btn_video_convert)
+        video_layout.addWidget(self.video_card)
+        video_layout.addStretch(1)
+
         self.stack.addWidget(self.img_panel)
         self.stack.addWidget(self.doc_panel)
+        self.stack.addWidget(self.video_panel)
 
-        # 信号绑定
-        self.btn_img_cat.clicked.connect(lambda: self.stack.setCurrentIndex(0))
-        self.btn_doc_cat.clicked.connect(lambda: self.stack.setCurrentIndex(1))
-        
+        self.type_box.currentIndexChanged.connect(self.stack.setCurrentIndex)
+
         self.btn_img_browse.clicked.connect(self.select_img_file)
         self.btn_doc_browse.clicked.connect(self.select_doc_file)
+        self.btn_video_browse.clicked.connect(self.select_video_file)
         
         self.btn_img_convert.clicked.connect(self.do_img_convert)
         self.btn_doc_convert.clicked.connect(self.do_doc_convert)
-        
-        self.img_path_edit.textChanged.connect(lambda t: self.btn_img_convert.setEnabled(bool(t)))
-        self.doc_path_edit.textChanged.connect(lambda t: self.btn_doc_convert.setEnabled(bool(t)))
-        
-        self.img_type_box.currentIndexChanged.connect(self.on_img_type_changed)
+        self.btn_video_convert.clicked.connect(self.do_video_convert)
 
-    def on_img_type_changed(self, index):
-        is_general = index == 2
-        self.img_target_label.setVisible(is_general)
-        self.img_target_format.setVisible(is_general)
+    def on_img_format_clicked(self):
+        btn = self.sender()
+        for b in self.img_format_btns:
+            if b != btn:
+                b.setChecked(False)
+        self.update_img_convert_btn()
+
+    def update_img_convert_btn(self):
+        has_file = bool(self.img_path_edit.text())
+        has_format = any(b.isChecked() for b in self.img_format_btns)
+        self.btn_img_convert.setEnabled(has_file and has_format)
+
+    def update_doc_convert_btn(self):
+        has_file = bool(self.doc_path_edit.text())
+        self.btn_doc_convert.setEnabled(has_file)
+
+    def update_video_convert_btn(self):
+        has_file = bool(self.video_path_edit.text())
+        self.btn_video_convert.setEnabled(has_file)
 
     def select_img_file(self):
-        mode = self.img_type_box.currentText()
+        # 允许选择所有支持的图片格式
         filter_str = "图片文件 (*.svg *.png *.jpg *.jpeg *.webp *.bmp)"
-        if "SVG" in mode:
-            filter_str = "SVG 文件 (*.svg)"
-        
         path, _ = QFileDialog.getOpenFileName(self, "选择图片", "", filter_str)
         if path:
             self.img_path_edit.setText(path)
+            self.update_img_convert_btn()
 
     def select_doc_file(self):
-        mode = self.doc_type_box.currentText()
+        # 允许选择所有支持的文档格式
         filter_str = "文档文件 (*.pdf *.docx *.xlsx *.xls)"
-        if "PDF" in mode: filter_str = "PDF 文件 (*.pdf)"
-        elif "Word" in mode: filter_str = "Word 文档 (*.docx)"
-        elif "Excel" in mode: filter_str = "Excel 表格 (*.xlsx *.xls)"
-        
         path, _ = QFileDialog.getOpenFileName(self, "选择文档", "", filter_str)
         if path:
             self.doc_path_edit.setText(path)
+            self.update_doc_convert_btn()
+
+    def select_video_file(self):
+        filter_str = "视频文件 (*.mp4 *.mkv *.mov *.avi *.flv *.wmv)"
+        path, _ = QFileDialog.getOpenFileName(self, "选择视频", "", filter_str)
+        if path:
+            self.video_path_edit.setText(path)
+            self.update_video_convert_btn()
 
     def do_img_convert(self):
         input_path = self.img_path_edit.text()
-        mode = self.img_type_box.currentText()
+        target_fmt = ""
+        for b in self.img_format_btns:
+            if b.isChecked():
+                target_fmt = b.text()
+                break
         
-        if mode == "SVG 转 ICO":
-            default_name = os.path.splitext(os.path.basename(input_path))[0] + ".ico"
-            save_path, _ = QFileDialog.getSaveFileName(self, "保存 ICO", default_name, "ICO 图标 (*.ico)")
-            if save_path:
-                success, msg = svg_to_ico(input_path, save_path)
-        elif mode == "SVG 转 PNG":
-            # 复用逻辑，这里简单处理
-            save_path, _ = QFileDialog.getSaveFileName(self, "保存 PNG", "output.png", "PNG 图片 (*.png)")
-            if save_path:
-                from modules.file_converter import image_convert
-                # 注意：这里需要专门的 SVG -> PNG，由于 SVG 是矢量，用 QImage 渲染
-                renderer = QSvgRenderer(input_path)
-                image = QImage(1024, 1024, QImage.Format_ARGB32)
-                image.fill(Qt.transparent)
-                painter = QPainter(image)
-                renderer.render(painter)
-                painter.end()
-                success = image.save(save_path, "PNG")
-                msg = "成功" if success else "失败"
+        if not target_fmt: return
+
+        from PyQt5.QtSvg import QSvgRenderer
+        from PyQt5.QtGui import QImage, QPainter
+        
+        is_svg = input_path.lower().endswith(".svg")
+        success, msg = False, "转换失败"
+        save_path = None
+
+        if is_svg:
+            if target_fmt == "ICO":
+                default_name = os.path.splitext(os.path.basename(input_path))[0] + ".ico"
+                save_path, _ = QFileDialog.getSaveFileName(self, "保存 ICO", default_name, "ICO 图标 (*.ico)")
+                if save_path:
+                    success, msg = svg_to_ico(input_path, save_path)
+            else:
+                save_path, _ = QFileDialog.getSaveFileName(self, f"保存 {target_fmt}", f"output.{target_fmt.lower()}", f"{target_fmt} 图片 (*.{target_fmt.lower()})")
+                if save_path:
+                    try:
+                        renderer = QSvgRenderer(input_path)
+                        image = QImage(1024, 1024, QImage.Format_ARGB32)
+                        image.fill(Qt.transparent)
+                        painter = QPainter(image)
+                        renderer.render(painter)
+                        painter.end()
+                        success = image.save(save_path, target_fmt)
+                        msg = "成功" if success else "保存失败"
+                    except Exception as e:
+                        msg = str(e)
         else:
-            target_fmt = self.img_target_format.currentText()
             save_path, _ = QFileDialog.getSaveFileName(self, f"保存 {target_fmt}", f"output.{target_fmt.lower()}", f"{target_fmt} 图片 (*.{target_fmt.lower()})")
             if save_path:
                 success, msg = image_convert(input_path, save_path, target_fmt)
@@ -1473,26 +1673,53 @@ class ConverterInterface(QWidget):
 
     def do_doc_convert(self):
         input_path = self.doc_path_edit.text()
-        mode = self.doc_type_box.currentText()
+        if not input_path:
+            return
+        target = self.doc_target_box.currentData()
+        ext = os.path.splitext(input_path)[1].lower()
         success, msg = False, "未执行"
         save_path = None
-
-        if mode == "PDF 转 Word":
+        if ext == ".pdf" and target == "docx":
             save_path, _ = QFileDialog.getSaveFileName(self, "保存 Word", "output.docx", "Word 文档 (*.docx)")
-            if save_path: success, msg = pdf_to_word(input_path, save_path)
-        elif mode == "Word 转 PDF":
+            if save_path:
+                success, msg = pdf_to_word(input_path, save_path)
+        elif ext == ".docx" and target == "pdf":
             save_path, _ = QFileDialog.getSaveFileName(self, "保存 PDF", "output.pdf", "PDF 文档 (*.pdf)")
-            if save_path: success, msg = word_to_pdf(input_path, save_path)
-        elif mode == "Word 提取表格到 Excel":
+            if save_path:
+                success, msg = word_to_pdf(input_path, save_path)
+        elif ext == ".docx" and target == "xlsx":
             save_path, _ = QFileDialog.getSaveFileName(self, "保存 Excel", "tables.xlsx", "Excel 表格 (*.xlsx)")
-            if save_path: success, msg = word_to_excel(input_path, save_path)
-        elif mode == "Excel 转 Word 表格":
+            if save_path:
+                success, msg = word_to_excel(input_path, save_path)
+        elif ext in [".xlsx", ".xls"] and target == "docx":
             save_path, _ = QFileDialog.getSaveFileName(self, "保存 Word", "output.docx", "Word 文档 (*.docx)")
-            if save_path: success, msg = excel_to_word(input_path, save_path)
-
+            if save_path:
+                success, msg = excel_to_word(input_path, save_path)
+        else:
+            InfoBar.error("不支持的转换", "当前源文件和目标格式不支持直接转换", duration=5000, parent=self.window())
+            return
         if save_path:
-            if success: InfoBar.success("转换成功", "文件已保存", duration=3000, parent=self.window())
-            else: InfoBar.error("转换失败", msg, duration=5000, parent=self.window())
+            if success:
+                InfoBar.success("转换成功", "文件已保存", duration=3000, parent=self.window())
+            else:
+                InfoBar.error("转换失败", msg, duration=5000, parent=self.window())
+
+    def do_video_convert(self):
+        input_path = self.video_path_edit.text()
+        if not input_path:
+            return
+        target_fmt = self.video_format_box.currentText().lower()
+        base = os.path.splitext(os.path.basename(input_path))[0]
+        default_name = f"{base}.{target_fmt}"
+        filter_str = f"{target_fmt.upper()} 视频 (*.{target_fmt})"
+        save_path, _ = QFileDialog.getSaveFileName(self, "保存视频", default_name, filter_str)
+        if not save_path:
+            return
+        success, msg = video_convert(input_path, save_path, target_fmt)
+        if success:
+            InfoBar.success("转换成功", "视频已保存", duration=3000, parent=self.window())
+        else:
+            InfoBar.error("转换失败", msg, duration=5000, parent=self.window())
 
     def update_network_status(self, is_online):
         """ 更新网络状态 """
@@ -1508,6 +1735,8 @@ class ConverterInterface(QWidget):
         self.title.setStyleSheet(f"color:{text_color}; font-size: 16px; font-weight: 600;")
         self.img_card.setStyleSheet(f"background-color: {card_bg}; border-radius: 10px;")
         self.doc_card.setStyleSheet(f"background-color: {card_bg}; border-radius: 10px;")
+        if hasattr(self, "video_card"):
+            self.video_card.setStyleSheet(f"background-color: {card_bg}; border-radius: 10px;")
 
 class SettingsInterface(QWidget):
     """ 设置界面 """
@@ -1568,13 +1797,13 @@ class SettingsInterface(QWidget):
         self.changelog_display.setReadOnly(True)
         self.changelog_display.setFixedHeight(150)
         self.changelog_display.setText(
-            "v1.1.9 (2026-01-18)\n"
-            "1. [优化] 硬件扫描加速：本机配置信息改为后台异步加载，点击即显提示，不再卡顿。\n"
-            "2. [修复] 显卡精准识别：显卡型号现在可以显示具体型号（如 RTX 4060），不再仅显示品牌。\n"
-            "3. [修复] 网络详情修复：解决部分系统环境下 netsh 命令编码导致的获取信息失败问题。\n"
-            "4. [适配] 家庭版识别：针对 Windows 家庭版自动禁用组策略按钮并添加悬停提示。\n"
-            "5. [优化] 磁盘类型识别：增加缓存机制，提升 SSD/HDD 识别效率。\n"
-            "6. [新增] 免责声明：加入首次启动强制确认机制，确保软件合规使用。"
+            "v1.2.0 (2026-01-19)\n"
+            "1. [重构] 格式转换界面：合并图片与文档转换，新增视频转换功能（支持 MP4/MKV 等）。\n"
+            "2. [优化] 配置保存：配置文件迁移至 %APPDATA% 目录，彻底解决权限不足导致的保存失败问题。\n"
+            "3. [新增] 退出确认：新增退出确认对话框，支持“最小化到托盘”选项并记忆用户偏好。\n"
+            "4. [优化] 版本号同步：窗口标题自动同步 README 文档版本号，无需手动修改代码。\n"
+            "5. [安全] 免责声明升级：强制阅读倒计时与代码内置声明文本，提升合规性。\n"
+            "6. [调整] IP 查询优化：取消启动自动查询，改为手动触发，保护用户隐私。"
         )
         layout.addWidget(self.changelog_display)
 
@@ -1645,14 +1874,18 @@ class MainWindow(FluentWindow):
 
     def show_disclaimer(self, is_first_time=False):
         """ 显示免责声明弹窗 """
+        content = DISCLAIMER_TEXT
+        
+        # 尝试从外部文件同步最新内容（如果存在）
         try:
-            with open("disclaimer.txt", "r", encoding="utf-8") as f:
-                content = f.read()
+            if os.path.exists("disclaimer.txt"):
+                with open("disclaimer.txt", "r", encoding="utf-8") as f:
+                    content = f.read()
         except:
-            content = "免责声明文件丢失，请联系开发者。"
+            pass
 
         title = "免责声明" if not is_first_time else "欢迎使用 - 免责声明"
-        w = MessageBox(title, content, self.window())
+        w = DisclaimerDialog(title, content, self.window())
         w.yesButton.setText("我已阅读并同意")
         w.cancelButton.setText("拒绝并退出" if is_first_time else "关闭")
 
@@ -1793,11 +2026,15 @@ class MainWindow(FluentWindow):
         self._last_online_state = is_online
 
     def init_window(self):
-        self.setWindowTitle("全能Windows桌面工具 v1.1.9")
+        version = get_app_version()
+        self.setWindowTitle(f"全能Windows桌面工具 {version}")
         self.resize(750, 520)
         
-        # 使用 SVG 图标，确保矢量图形在任何缩放比例下都清晰且保留透明度
-        icon_path = "app.svg"
+        # 优先使用 .ico 图标以获得更好的系统兼容性，.svg 作为备选
+        icon_path = "app.ico"
+        if not os.path.exists(icon_path):
+            icon_path = "app.svg"
+            
         if hasattr(sys, '_MEIPASS'):
             icon_path = os.path.join(sys._MEIPASS, icon_path)
         
@@ -1847,6 +2084,7 @@ class MainWindow(FluentWindow):
                 self.activateWindow()
 
     def connect_signals(self):
+        self.ip_interface.btn_view_disclaimer.clicked.connect(lambda: self.show_disclaimer(is_first_time=False))
         self.ip_interface.btn_query.clicked.connect(self.query_ip)
         self.speed_interface.btn_start.clicked.connect(self.start_speed_test)
         self.speed_interface.btn_settings.clicked.connect(self.speed_interface.toggle_settings)
@@ -1997,8 +2235,7 @@ class MainWindow(FluentWindow):
         self.apply_accent_color(accent_color)
 
     def _load_speed_ip_info(self):
-        # 启动时自动查询一次IP
-        self.query_ip()
+        pass
 
     def start_gp_fix(self):
         """ 启动组策略修复流程 """
@@ -2214,21 +2451,67 @@ class MainWindow(FluentWindow):
         self._sync_theme_styles()
 
     def closeEvent(self, event):
-        if self.settings.get("minimize_to_tray", True):
-            event.ignore()
-            self.hide()
-            self.tray_icon.showMessage("全能桌面工具", "程序已最小化到系统托盘", QSystemTrayIcon.Information, 2000)
+        mb = MessageBox("退出程序", "确定要退出全能Windows桌面工具吗？", self)
+        cb = CheckBox("点击关闭时最小化到系统托盘", mb)
+        cb.setChecked(self.settings.get("minimize_to_tray", True))
+        mb.textLayout.addWidget(cb)
+        mb.yesButton.setText("确定")
+        mb.cancelButton.setText("取消")
+        if mb.exec_():
+            minimize = cb.isChecked()
+            self.settings["minimize_to_tray"] = minimize
+            save_settings(self.settings)
+            self.settings_interface.cb_minimize_tray.setChecked(minimize)
+            if minimize:
+                event.ignore()
+                self.hide()
+                self.tray_icon.showMessage("全能桌面工具", "程序已最小化到系统托盘", QSystemTrayIcon.Information, 2000)
+            else:
+                event.accept()
+                self.quit_app()
         else:
-            self.quit_app()
+            event.ignore()
 
     def quit_app(self):
-        # 关闭所有辅助窗口
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.hide()
+            self.tray_icon.deleteLater()
+
+        if hasattr(self, 'network_monitor'):
+            try:
+                self.network_monitor.stop()
+            except Exception:
+                pass
+
+        if hasattr(self, 'speed_worker') and getattr(self, 'speed_worker', None):
+            try:
+                if self.speed_worker.isRunning():
+                    self.speed_worker.quit()
+            except Exception:
+                pass
+
+        if hasattr(self, 'ip_worker') and getattr(self, 'ip_worker', None):
+            try:
+                if self.ip_worker.isRunning():
+                    self.ip_worker.quit()
+            except Exception:
+                pass
+
+        if hasattr(self, 'gp_worker') and getattr(self, 'gp_worker', None):
+            try:
+                if self.gp_worker.isRunning():
+                    self.gp_worker.quit()
+            except Exception:
+                pass
+
         if hasattr(self, 'window_tool_interface'):
-            self.window_tool_interface.highlighter.close()
-            if self.window_tool_interface.target_btn.ghost:
-                self.window_tool_interface.target_btn.ghost.close()
-        
-        self.tray_icon.hide()
+            try:
+                self.window_tool_interface.highlighter.close()
+                if hasattr(self.window_tool_interface.target_btn, 'ghost') and self.window_tool_interface.target_btn.ghost:
+                    self.window_tool_interface.target_btn.ghost.close()
+            except Exception:
+                pass
+
         QApplication.quit()
 
 if __name__ == "__main__":

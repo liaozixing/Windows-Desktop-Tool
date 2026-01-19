@@ -1,5 +1,7 @@
 import os
 import sys
+import subprocess
+import shutil
 from PyQt5.QtGui import QImage, QPainter
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtCore import QSize, Qt
@@ -122,5 +124,20 @@ def excel_to_word(excel_path, docx_path):
             
         doc.save(docx_path)
         return True, "成功将 Excel 转为 Word 表格"
+    except Exception as e:
+        return False, str(e)
+
+
+def video_convert(input_path, output_path, target_format=None):
+    """ 通用视频格式转换，依赖系统已安装 ffmpeg """
+    try:
+        if shutil.which("ffmpeg") is None:
+            return False, "未检测到 ffmpeg，请先安装并配置环境变量"
+        cmd = ["ffmpeg", "-y", "-i", input_path, output_path]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode == 0:
+            return True, "转换成功"
+        msg = result.stderr.decode("utf-8", errors="ignore").strip() or "未知错误"
+        return False, msg
     except Exception as e:
         return False, str(e)
