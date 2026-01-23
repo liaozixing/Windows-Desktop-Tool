@@ -5,6 +5,8 @@ import subprocess
 import ctypes
 from PyQt5.QtCore import QObject, pyqtSignal
 
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 def get_size(bytes, suffix="B"):
     factor = 1024
     for unit in ["", "K", "M", "G", "T", "P"]:
@@ -14,10 +16,17 @@ def get_size(bytes, suffix="B"):
 
 def get_gpu_info():
     try:
-        # 获取具体的显卡型号
-        command = "wmic path win32_VideoController get name"
-        output = subprocess.check_output(command, shell=True).decode('utf-8', errors='ignore')
-        lines = [line.strip() for line in output.split('\n') if line.strip() and "Name" not in line]
+        result = subprocess.run(
+            ["wmic", "path", "win32_VideoController", "get", "name"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="gbk",
+            errors="ignore",
+            creationflags=_CREATE_NO_WINDOW,
+        )
+        output = result.stdout or ""
+        lines = [line.strip() for line in output.split("\n") if line.strip() and "Name" not in line]
         gpu_name = ", ".join(lines)
         return gpu_name if gpu_name else "未知"
     except:
@@ -26,10 +35,21 @@ def get_gpu_info():
 def get_disk_type(drive_letter):
     """根据盘符判断磁盘类型 (SSD/HDD)"""
     try:
-        # 优化：通过更快的命令或逻辑，或者只针对物理磁盘号查询一次
-        # 这里为了速度，如果 powershell 太慢，可以考虑缓存
-        cmd = f"powershell \"Get-PhysicalDisk | Where-Object {{ (Get-Partition -DriveLetter {drive_letter}).DiskNumber -eq $_.DeviceId }} | Select-Object -ExpandProperty MediaType\""
-        output = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='ignore').strip()
+        script = (
+            "Get-PhysicalDisk | Where-Object { "
+            f"(Get-Partition -DriveLetter '{drive_letter}').DiskNumber -eq $_.DeviceId "
+            "} | Select-Object -ExpandProperty MediaType"
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="gbk",
+            errors="ignore",
+            creationflags=_CREATE_NO_WINDOW,
+        )
+        output = (result.stdout or "").strip()
         if "SSD" in output.upper():
             return "SSD"
         elif "HDD" in output.upper():
@@ -71,9 +91,17 @@ def get_system_info():
         # 核心硬件 (处理器)
         # 尝试通过 wmic 获取更准确的 CPU 名称
         try:
-            cpu_cmd = "wmic cpu get name"
-            cpu_output = subprocess.check_output(cpu_cmd, shell=True).decode('utf-8', errors='ignore')
-            cpu_name = cpu_output.split('\n')[1].strip()
+            result = subprocess.run(
+                ["wmic", "cpu", "get", "name"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="gbk",
+                errors="ignore",
+                creationflags=_CREATE_NO_WINDOW,
+            )
+            cpu_output = result.stdout or ""
+            cpu_name = cpu_output.split("\n")[1].strip()
             info['processor'] = cpu_name
         except:
             info['processor'] = platform.processor().split(',')[0].strip()

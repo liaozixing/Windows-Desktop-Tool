@@ -65,7 +65,8 @@ def open_file_location(path):
     
     try:
         # 使用 explorer /select, "path" 选中文件
-        subprocess.run(['explorer', '/select,', os.path.normpath(path)])
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(['explorer', '/select,', os.path.normpath(path)], creationflags=flags)
         return True
     except Exception:
         return False

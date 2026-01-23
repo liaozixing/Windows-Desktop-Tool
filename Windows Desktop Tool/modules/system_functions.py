@@ -1,25 +1,42 @@
 import os
 import subprocess
 
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+
+def _popen(args, show_console=False):
+    flags = _CREATE_NEW_CONSOLE if show_console else _CREATE_NO_WINDOW
+    try:
+        return subprocess.Popen(args, shell=False, creationflags=flags)
+    except Exception:
+        try:
+            return subprocess.Popen(args, shell=True, creationflags=flags)
+        except Exception:
+            return None
+
 def get_activation_status():
     """获取系统激活状态"""
     try:
-        # 使用 slmgr.vbs /xpr 获取激活过期日期
-        result = subprocess.check_output(['cscript', '//nologo', os.path.join(os.environ['SystemRoot'], 'System32', 'slmgr.vbs'), '/xpr'], 
-                                        stderr=subprocess.STDOUT, 
-                                        universal_newlines=True,
-                                        encoding='gbk')
-        return result.strip()
+        result = subprocess.run(
+            ["cscript", "//nologo", os.path.join(os.environ["SystemRoot"], "System32", "slmgr.vbs"), "/xpr"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="gbk",
+            errors="ignore",
+            creationflags=_CREATE_NO_WINDOW,
+        )
+        return (result.stdout or "").strip()
     except Exception as e:
         return f"获取失败: {str(e)}"
 
 def open_cmd():
     """打开系统命令行窗口"""
-    os.system("start cmd")
+    _popen(["cmd.exe"], show_console=True)
 
 def open_task_manager():
     """打开系统任务管理器"""
-    os.system("start taskmgr")
+    _popen(["taskmgr.exe"])
 
 def open_explorer(path="."):
     """打开文件资源管理器到指定目录"""
@@ -32,7 +49,7 @@ def open_group_policy():
         gpedit_path = os.path.join(os.environ['SystemRoot'], 'System32', 'gpedit.msc')
         if not os.path.exists(gpedit_path):
             return False
-        os.system("start gpedit.msc")
+        os.startfile(gpedit_path)
         return True
     except:
         return False
@@ -43,43 +60,45 @@ def fix_group_policy(progress_callback=None):
     progress_callback: 用于回传进度信息的函数
     """
     try:
-        if progress_callback: progress_callback("正在准备修复环境...")
-        
-        # 构造批处理指令
-        # 1. 查找软件包并生成列表
-        # 2. 使用 DISM 安装软件包
-        commands = [
-            f'dir /b %systemroot%\\servicing\\Packages\\Microsoft-Windows-GroupPolicy-ClientExtensions-Package~3*.mum > "{os.environ["TEMP"]}\\gp.txt"',
-            f'dir /b %systemroot%\\servicing\\Packages\\Microsoft-Windows-GroupPolicy-ClientTools-Package~3*.mum >> "{os.environ["TEMP"]}\\gp.txt"',
+        if progress_callback:
+            progress_callback("正在准备修复环境...")
+
+        import glob
+
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        packages_dir = os.path.join(system_root, "servicing", "Packages")
+
+        patterns = [
+            "Microsoft-Windows-GroupPolicy-ClientExtensions-Package~3*.mum",
+            "Microsoft-Windows-GroupPolicy-ClientTools-Package~3*.mum",
         ]
-        
-        for cmd in commands:
-            subprocess.run(cmd, shell=True, check=True)
-            
-        # 读取生成的列表并安装
-        list_path = os.path.join(os.environ["TEMP"], "gp.txt")
-        if not os.path.exists(list_path):
-            return False, "未能生成修复包列表"
-            
-        with open(list_path, 'r') as f:
-            packages = f.readlines()
-            
-        total = len(packages)
+
+        package_files = []
+        for pattern in patterns:
+            package_files.extend(glob.glob(os.path.join(packages_dir, pattern)))
+
+        package_names = sorted({os.path.basename(p) for p in package_files if p})
+        total = len(package_names)
         if total == 0:
             return False, "未找到可用的组策略修复包"
-            
-        for i, pkg in enumerate(packages):
-            pkg = pkg.strip()
-            if not pkg: continue
-            if progress_callback: progress_callback(f"正在安装组件 ({i+1}/{total}): {pkg[:30]}...")
-            
-            install_cmd = f'dism /online /norestart /add-package:"%systemroot%\\servicing\\Packages\\{pkg}"'
-            subprocess.run(install_cmd, shell=True, check=True)
-            
-        # 清理临时文件
-        if os.path.exists(list_path):
-            os.remove(list_path)
-            
+
+        for i, pkg in enumerate(package_names, start=1):
+            if progress_callback:
+                progress_callback(f"正在安装组件 ({i}/{total}): {pkg[:30]}...")
+
+            package_path = os.path.join(packages_dir, pkg)
+            result = subprocess.run(
+                ["dism", "/online", "/norestart", "/add-package", f"/packagepath:{package_path}"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="gbk",
+                errors="ignore",
+                creationflags=_CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout)
+
         return True, "修复完成！请尝试重新打开组策略。"
     except subprocess.CalledProcessError as e:
         return False, f"执行失败 (需管理员权限): {str(e)}"
@@ -88,13 +107,11 @@ def fix_group_policy(progress_callback=None):
 
 def open_run_dialog():
     """打开运行对话框"""
-    # 使用 powershell 调用 COM 对象打开运行框
-    cmd = '(New-Object -ComObject Shell.Application).FileRun()'
-    subprocess.Popen(['powershell', '-Command', cmd], shell=True)
+    _popen(["rundll32.exe", "shell32.dll,#61"])
 
 def open_environment_variables():
     """打开系统环境变量设置"""
-    os.system("rundll32.exe sysdm.cpl,EditEnvironmentVariables")
+    _popen(["rundll32.exe", "sysdm.cpl,EditEnvironmentVariables"])
 
 def clean_cache(root_dir="."):
     """递归清理 __pycache__ 文件夹"""

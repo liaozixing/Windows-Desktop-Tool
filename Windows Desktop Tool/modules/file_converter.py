@@ -8,6 +8,8 @@ from PyQt5.QtCore import QSize, Qt
 from PIL import Image
 import pandas as pd
 
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 # 动态导入处理
 try:
     from pdf2docx import Converter as PDFConverter
@@ -134,7 +136,7 @@ def video_convert(input_path, output_path, target_format=None):
         if shutil.which("ffmpeg") is None:
             return False, "未检测到 ffmpeg，请先安装并配置环境变量"
         cmd = ["ffmpeg", "-y", "-i", input_path, output_path]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_CREATE_NO_WINDOW)
         if result.returncode == 0:
             return True, "转换成功"
         msg = result.stderr.decode("utf-8", errors="ignore").strip() or "未知错误"
