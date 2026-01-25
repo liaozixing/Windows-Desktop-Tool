@@ -1,0 +1,12 @@
+PyQt5
+requests
+psutil
+PyQt-Fluent-Widgets
+speedtest-cli
+Pillow
+pdf2docx
+docx2pdf
+python-docx
+pandas
+openpyxl
+pywin32
