@@ -145,6 +145,8 @@ def find_readme_path():
         os.path.join(os.getcwd(), "README.md"),
         # 脚本所在目录的父目录（Windows Desktop Tool 的父目录）
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "README.md"),
+        # 当前脚本所在目录的上一级目录（针对 Windows Desktop Tool 目录内部的情况）
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "README.md"),
         # 打包后的情况
         os.path.join(os.path.dirname(sys.executable), "README.md") if getattr(sys, 'frozen', False) else None,
         # 从当前文件位置向上查找
@@ -359,6 +361,53 @@ def sync_changelog_from_readme():
         print(f"写入更新日志失败: {e}")
         return False
 
+def _normalize_version_to_tuple(version_text):
+    if version_text is None:
+        return ()
+    s = str(version_text).strip()
+    s = re.sub(r'^[vV]\s*', '', s)
+    s = re.sub(r'[^0-9.].*$', '', s)
+    parts = [p for p in s.split('.') if p != '']
+    out = []
+    for p in parts:
+        try:
+            out.append(int(p))
+        except Exception:
+            break
+    while out and out[-1] == 0:
+        out.pop()
+    return tuple(out)
+
+def compare_versions(a, b):
+    va = _normalize_version_to_tuple(a)
+    vb = _normalize_version_to_tuple(b)
+    max_len = max(len(va), len(vb))
+    va = va + (0,) * (max_len - len(va))
+    vb = vb + (0,) * (max_len - len(vb))
+    if va > vb:
+        return 1
+    if va < vb:
+        return -1
+    return 0
+
+def fetch_latest_github_release(repo_full_name, timeout_sec=6):
+    try:
+        import requests
+        url = f"https://api.github.com/repos/{repo_full_name}/releases/latest"
+        r = requests.get(url, headers={"User-Agent": "Windows-Desktop-Tool"}, timeout=timeout_sec)
+        if r.status_code != 200:
+            return {"ok": False, "message": f"请求失败: HTTP {r.status_code}"}
+        data = r.json() or {}
+        tag = data.get("tag_name") or ""
+        html_url = data.get("html_url") or f"https://github.com/{repo_full_name}/releases"
+        name = data.get("name") or ""
+        latest = tag.strip() or name.strip()
+        if not latest:
+            return {"ok": False, "message": "未获取到版本号"}
+        return {"ok": True, "latest_version": latest, "url": html_url}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
 if __name__ == "__main__":
     # 测试代码
     write_changelog_entry("v1.2.0", [
@@ -367,4 +416,3 @@ if __name__ == "__main__":
         "[新增] 退出确认：新增退出确认对话框",
     ])
     print(format_changelog_text())
-

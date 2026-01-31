@@ -1,32 +1,22 @@
-使用该软件时请先阅读 `Windows Desktop Tool\disclaimer.txt` 免责声明文件
+使用该软件时请先阅读 `Windows Desktop Tool\disclaimer.py` 免责声明文件
 
 #  Windows 桌面工具 ( Windows Desktop Tool)
 
-**版本：v1.3.0** (更新日期: 2026-01-19)
+**版本：v1.4.0** (更新日期: 2026-01-28)
 
 一个基于 Python 和 PyQt-Fluent-Widgets 开发的现代化 Windows 桌面实用工具集。该工具集集成网络信息查询、网速测试、文件粉碎、万能格式转换、窗口定位工具、系统快捷工具等功能，并具备完善的**实时网络监控**与**离线支持**机制。
 
-## 🛠️ 最近更新 (v1.3.0)
-- **格式转换界面重构**：
-  - **统一入口**：图片转换、文档转换合并为一个“万能格式转换”界面，通过“转换类型”下拉框在图片 / 文档 / 视频之间快速切换。
-  - **文档转换优化**：文档转换第二步改为“目标格式”下拉框，支持在 Word / PDF / Excel 之间一键切换目标格式。
-  - **新增视频转换**：新增“视频转换”页签，支持 MP4 / MKV / MOV / AVI 等常见格式，底层基于 `ffmpeg` 调用。
-- **配置保存稳定性提升**：
-  - **配置路径迁移**：将 `settings.json` 从程序目录迁移到 `%APPDATA%/UniversalWindowsDesktopTool/`，彻底避免因权限不足或被占用导致的“配置保存失败”提示。
-  - **自动目录创建**：启动时会自动创建配置目录，保证首次运行也能顺利写入配置。
-- **退出行为与托盘逻辑优化**：
-  - **关闭确认对话框**：点击右上角关闭按钮时弹出“是否退出”确认框，避免误操作直接退出程序。
-  - **托盘最小化选项**：在确认框中新增“点击关闭时最小化到系统托盘”复选框，可自由选择关闭行为，并自动记住用户偏好。
-- **版本号自动同步**：
-  - **标题栏自动更新**：程序启动时从本说明文档中解析 `版本：vX.Y.Z` 字段，窗口标题自动显示对应版本号，无需在代码中手动修改。
-  - **格式兼容性**：若解析失败，会回退到内置默认版本，保证程序始终可正常显示。
-- **免责声明安全性升级**：
-  - **合规性增强**：引入强制 5 秒阅读倒计时，用户必须滑动到底部后方可点击“我已阅读并同意”。
-  - **双重保障**：免责声明文本现已内置于代码中，即使外部 `disclaimer.txt` 文件丢失，程序仍能正常显示法律声明。
-- **系统兼容性与图标优化**：
-  - **图标显示修复**：针对 Windows 任务栏在部分环境下无法正确显示 SVG 图标的问题，现优先使用 `.ico` 格式图标，提供更完美的视觉体验。
-  - **托盘图标同步**：系统托盘图标同步升级为高优先级 `.ico` 资源。
-  - 修复了一些已知问题。
+## 🛠️ 最近更新 (v1.4.3)
+- **新功能**：
+  - **二维码工具**：全新上线！支持自定义文本生成二维码，一键保存或复制到剪贴板。
+  - **自动更新**：支持启动时自动检查 GitHub 最新版本，不错过任何新功能。
+- **体验优化**：
+  - **测速重构**：重新设计的网速测试界面，采用 Catmull-Rom 算法绘制平滑曲线，告别锯齿和扭曲；自动获取 IP 归属地信息。
+  - **主题统一**：全线统一蓝色主题风格，修复深色模式下部分组件显示异常的问题。
+- **性能与修复**：
+  - **秒级关闭**：彻底解决了程序关闭时卡顿的问题。
+  - **配置持久化**：修复了自动更新开关状态无法保存的问题。
+  - **移除冗余**：移除了自动清理 `__pycache__` 的功能，避免潜在的文件权限问题。
 
 ## 🛠️ 环境要求
 
@@ -87,35 +77,45 @@ python main.py
 ### 6. 🔄 万能格式转换
 - **图片转换**：SVG 转 ICO/PNG，PNG/JPG/WebP/BMP 互转。
 - **文档转换**：PDF 互转 Word，Excel 与 Word 数据互提。
+- **视频转换**：支持 MP4/MKV/MOV/AVI 等常见格式。
 
 ## 📂 项目结构
 
 ```text
 Windows-Desktop-Tool/
-├── modules/                # 核心功能逻辑模块
-│   ├── __init__.py         # 模块初始化
-│   ├── file_converter.py   # 格式转换逻辑 (图片/文档)
-│   ├── file_shredder.py    # 文件粉碎逻辑 (锁定检查/强制删除)
-│   ├── ip_query.py         # IP 查询逻辑
-│   ├── network_monitor.py  # 网络监控逻辑
-│   ├── network_speed.py    # 网速测试逻辑
-│   ├── settings.py         # 配置管理逻辑
-│   ├── system_functions.py # 系统工具逻辑 (组策略修复/清理缓存)
-│   ├── system_info.py      # 本机信息逻辑 (硬件识别)
-│   └── window_tool.py      # 窗口定位逻辑
-├── ui/                     # 用户界面实现模块
-│   ├── __init__.py         # 模块初始化
-│   ├── components.py       # 自定义 Fluent UI 组件
-│   └── main_window.py      # 主窗口及各功能界面实现
-├── utils/                  # 通用工具模块
-│   └── __init__.py         # 模块初始化
-├── app.ico                 # 程序图标
-├── app.svg                 # 程序矢量图标
-├── disclaimer.txt          # 免责声明文件
-├── main.py                 # 程序入口 (高 DPI 适配/翻译加载)
-├── README.md               # 项目说明文档
-├── requirements.txt        # 依赖清单
-└── settings.json           # 用户配置文件
+└── Windows Desktop Tool/       # 程序主目录
+    ├── modules/                # 核心功能逻辑模块
+    │   ├── changelog.py        # 更新日志处理
+    │   ├── file_converter.py   # 格式转换逻辑
+    │   ├── file_shredder.py    # 文件粉碎逻辑
+    │   ├── ip_query.py         # IP 查询逻辑
+    │   ├── network_monitor.py  # 网络监控逻辑
+    │   ├── network_speed.py    # 网速测试逻辑
+    │   ├── settings.py         # 配置管理逻辑
+    │   ├── system_functions.py # 系统工具逻辑
+    │   ├── system_info.py      # 本机信息逻辑
+    │   └── window_tool.py      # 窗口定位逻辑
+    ├── ui/                     # 用户界面实现模块
+    │   ├── background_workers.py # 后台异步任务处理
+    │   ├── components.py       # 自定义 Fluent UI 组件
+    │   ├── converter_interface.py # 格式转换界面
+    │   ├── disclaimer_dialog.py  # 免责声明对话框
+    │   ├── ip_interface.py     # IP 查询界面
+    │   ├── main_window.py      # 主窗口实现
+    │   ├── settings_interface.py # 设置与更新日志界面
+    │   ├── shredder_interface.py # 文件粉碎界面
+    │   ├── speed_test_interface.py # 网速测试界面
+    │   ├── system_interface.py   # 系统功能界面
+    │   └── window_tool_interface.py # 窗口工具界面
+    ├── utils/                  # 通用工具模块
+    ├── app.ico                 # 程序图标
+    ├── app.svg                 # 程序矢量图标
+    ├── config.py               # 版本号与更新日志配置
+    ├── disclaimer.py           # 免责声明内容
+    ├── main.py                 # 程序入口
+    ├── requirements.txt        # 依赖清单
+    └── settings.json           # 用户配置文件
+├── README.md                   # 项目说明文档
 ```
 
 ---
@@ -131,6 +131,6 @@ Windows-Desktop-Tool/
    - 必须 **公开源代码**
    - 必须 **继续使用 GPL-3.0 协议**
 3. 可以用于商业用途  
-   - 但仍需遵守 GPL 开源规则
+4. 但仍需遵守 GPL 开源规则
 
 *由 AI 辅助开发，致力于打造更便捷的 Windows 办公环境。*

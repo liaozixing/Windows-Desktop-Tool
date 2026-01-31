@@ -33,6 +33,8 @@ class NetworkMonitor(QThread):
                 self.last_status = current_status
             self.msleep(self.interval)
 
-    def stop(self):
+    def stop(self, timeout_ms=200):
         self.is_running = False
-        self.wait()
+        if timeout_ms is None:
+            return True
+        return self.wait(timeout_ms)

@@ -51,29 +51,42 @@ def save_settings(settings):
 
 def load_settings():
     """从 JSON 文件加载配置"""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"加载配置失败: {e}")
-    legacy_file = os.path.join(_BASE_DIR, "settings.json")
-    if os.path.exists(legacy_file):
-        try:
-            with open(legacy_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            save_settings(data)
-            return data
-        except Exception as e:
-            print(f"迁移旧配置失败: {e}")
-    return {
+    defaults = {
         "auto_start": False,
         "minimize_to_tray": True,
         "theme": "深色",
         "accent_color": "#1677ff",
         "language": "简体中文",
-        "disclaimer_accepted": False
+        "disclaimer_accepted": False,
+        "auto_check_updates": True
     }
+
+    data = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception as e:
+            print(f"加载配置失败: {e}")
+    legacy_file = os.path.join(_BASE_DIR, "settings.json")
+    if not data and os.path.exists(legacy_file):
+        try:
+            with open(legacy_file, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception as e:
+            print(f"迁移旧配置失败: {e}")
+
+    if isinstance(data, dict):
+        if "auto_check_update" in data and "auto_check_updates" not in data:
+            data["auto_check_updates"] = bool(data.get("auto_check_update"))
+            data.pop("auto_check_update", None)
+
+    merged = defaults.copy()
+    if isinstance(data, dict):
+        merged.update(data)
+
+    save_settings(merged)
+    return merged
 
 if __name__ == "__main__":
     # set_auto_start(True)

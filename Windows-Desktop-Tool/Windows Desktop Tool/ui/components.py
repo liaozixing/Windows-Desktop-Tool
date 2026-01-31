@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QWidget, QPushButton
 from PyQt5.QtCore import Qt, QRectF, QPropertyAnimation, pyqtProperty, QPointF, QEasingCurve
-from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPolygonF
+from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPolygonF, QPainterPath
 
 
 class GaugeWidget(QWidget):
@@ -266,18 +266,42 @@ class LineChartWidget(QWidget):
             y = int(h - 1 - (v / max_v) * (h - 6))
             points.append(QPointF(x, y))
 
-        # 绘制曲线下方的填充渐变色块
-        if points:
-            area = list(points)
-            area.append(QPointF(points[-1].x(), h))
-            area.append(QPointF(points[0].x(), h))
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(self.accent.red(), self.accent.green(), self.accent.blue(), self.fill_alpha))
-            painter.drawPolygon(QPolygonF(area))
+        path = QPainterPath()
+        path.moveTo(points[0])
+        
+        if len(points) == 2:
+            path.lineTo(points[1])
+        else:
+            # 使用 Catmull-Rom 样条曲线算法生成平滑曲线
+            # 这种算法保证曲线经过所有数据点，不会出现"扭扭"或偏离的问题
+            tension = 0.25  # 张力系数，0.2-0.3 效果较好
+            
+            for i in range(len(points) - 1):
+                p0 = points[i-1] if i > 0 else points[i]
+                p1 = points[i]
+                p2 = points[i+1]
+                p3 = points[i+2] if i < len(points) - 2 else points[i+1]
+                
+                # 计算控制点
+                cp1_x = p1.x() + (p2.x() - p0.x()) * tension
+                cp1_y = p1.y() + (p2.y() - p0.y()) * tension
+                
+                cp2_x = p2.x() - (p3.x() - p1.x()) * tension
+                cp2_y = p2.y() - (p3.y() - p1.y()) * tension
+                
+                path.cubicTo(QPointF(cp1_x, cp1_y), QPointF(cp2_x, cp2_y), p2)
 
-        # 绘制主曲线线条
+        fill_path = QPainterPath(path)
+        fill_path.lineTo(points[-1].x(), h)
+        fill_path.lineTo(points[0].x(), h)
+        fill_path.closeSubpath()
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(self.accent.red(), self.accent.green(), self.accent.blue(), self.fill_alpha))
+        painter.drawPath(fill_path)
+
         painter.setPen(QPen(self.accent, 2))
-        painter.drawPolyline(QPolygonF(points))
+        painter.drawPath(path)
 
 
 class CircleStartButton(QPushButton):
@@ -318,14 +342,14 @@ class CircleStartButton(QPushButton):
         # 初始默认样式（渐变色）
         self.setStyleSheet(
             "QPushButton{"
-            "background-color:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1677ff, stop:1 #36cfc9);"
+            "background-color:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1677ff, stop:1 #4096ff);"
             "border:none;"
             "border-radius:70px;"
             "color:#ffffff;"
             "font-size:16px;"
             "font-weight:700;"
             "}"
-            "QPushButton:hover{background-color:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #4096ff, stop:1 #5cdbd3);}"
-            "QPushButton:pressed{background-color:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0958d9, stop:1 #13c2c2);}"
+            "QPushButton:hover{background-color:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #4096ff, stop:1 #69b1ff);}"
+            "QPushButton:pressed{background-color:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0958d9, stop:1 #1677ff);}"
             "QPushButton:disabled{background-color:#e6f4ff;color:rgba(0,0,0,0.25);}"
         )
